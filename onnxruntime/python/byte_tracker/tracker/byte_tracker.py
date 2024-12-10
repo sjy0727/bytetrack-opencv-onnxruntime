@@ -12,10 +12,10 @@ from .basetrack import BaseTrack, TrackState
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
-    def __init__(self, tlwh, score):
+    def __init__(self, tlwh, score): 
 
         # wait activate
-        self._tlwh = np.asarray(tlwh, dtype=np.float)
+        self._tlwh = np.asarray(tlwh, dtype=np.float32)
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
@@ -42,10 +42,11 @@ class STrack(BaseTrack):
                 stracks[i].mean = mean
                 stracks[i].covariance = cov
 
-    def activate(self, kalman_filter, frame_id):
+    def activate(self, kalman_filter, frame_id):#, person_id): # SJY Added person_id
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
         self.track_id = self.next_id()
+        # self.person_id = person_id # SJY Added person_id
         self.mean, self.covariance = self.kalman_filter.initiate(self.tlwh_to_xyah(self._tlwh))
 
         self.tracklet_len = 0
@@ -187,7 +188,7 @@ class BYTETracker(object):
         if len(dets) > 0:
             '''Detections'''
             detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
-                          (tlbr, s) in zip(dets, scores_keep)]
+                        (tlbr, s) in zip(dets, scores_keep)]
         else:
             detections = []
 
@@ -202,9 +203,14 @@ class BYTETracker(object):
 
         ''' Step 2: First association, with high score detection boxes'''
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
+        # strack_pool = tracked_stracks
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
-        dists = matching.iou_distance(strack_pool, detections)
+        # TODO: 改成reid_feat
+        # strack_pool_feat = ReIDFeatureExtractor.get_features(strack_pool, img, img0)
+        # detections_feat = ReIDFeatureExtractor.get_features(detections, img, img0)
+        # dists = matching.embedding_distance(strack_pool_feat, detections_feat)
+        dists = matching.iou_distance(strack_pool, detections) 
         if not self.args.mot20:
             dists = matching.fuse_score(dists, detections)
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.args.match_thresh)
@@ -224,7 +230,7 @@ class BYTETracker(object):
         if len(dets_second) > 0:
             '''Detections'''
             detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
-                          (tlbr, s) in zip(dets_second, scores_second)]
+                        (tlbr, s) in zip(dets_second, scores_second)]
         else:
             detections_second = []
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
@@ -304,14 +310,16 @@ def joint_stracks(tlista, tlistb):
 
 
 def sub_stracks(tlista, tlistb):
-    stracks = {}
-    for t in tlista:
-        stracks[t.track_id] = t
-    for t in tlistb:
-        tid = t.track_id
-        if stracks.get(tid, 0):
-            del stracks[tid]
-    return list(stracks.values())
+    # stracks = {}
+    # for t in tlista:
+    #     stracks[t.track_id] = t
+    # for t in tlistb:
+    #     tid = t.track_id
+    #     if stracks.get(tid, 0):
+    #         del stracks[tid]
+    # return list(stracks.values())
+    track_ids_b = [t.track_id for t in tlistb]
+    return [t for t in tlista if not t.track_id in track_ids_b]
 
 
 def remove_duplicate_stracks(stracksa, stracksb):

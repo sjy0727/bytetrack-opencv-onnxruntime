@@ -70,7 +70,7 @@ class ByteTracker(object):
         self.net.setInput(blob)
         result = self.net.forward()
 
-        dets = self._post_process(result, image_info)
+        dets = self._post_process(result, image_info) # 经过NMS后的结果
 
         bboxes, ids, scores = self._tracker_update(
             dets,
@@ -87,6 +87,8 @@ class ByteTracker(object):
         )
         predictions = predictions[0]
         boxes = predictions[:, :4]
+        # predictions[:, 4] 的 shape 为 (13566,)
+        # predictions[:, 4:5] 的 shape 为 (13566, 1)
         scores = predictions[:, 4:5] * predictions[:, 5:]
 
         boxes_xyxy = np.ones_like(boxes)
@@ -145,7 +147,10 @@ def get_args():
     parser.add_argument(
         '--video',
         type=str,
+        # default='rtsp://admin:zbzn2024@192.168.0.77:554',
         default='sample.mp4',
+        # 'rtsp://admin:zbzn2024@192.168.0.76:554'
+        # 'sample.mp4'
     )
     parser.add_argument(
         '--output_dir',
@@ -240,7 +245,7 @@ def main():
         )
 
     frame_id = 1
-    winName = 'Deep learning object detection in OpenCV'
+    winName = 'ReID/MoT in OpenCV'
     while True:
         start_time = time.time()
 
@@ -273,8 +278,7 @@ def main():
             video_writer.write(debug_image)
 
         logger.info(
-            'frame {}/{} ({:.2f} ms)'.format(frame_id, int(frame_count),
-                                             elapsed_time * 1000), )
+            'frame {}/{} ({:.2f} ms)'.format(frame_id, int(frame_count), elapsed_time * 1000), )
         frame_id += 1
 
     if use_debug_window:

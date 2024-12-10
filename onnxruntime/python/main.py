@@ -23,6 +23,7 @@ def get_args():
         '--video',
         type=str,
         default='sample.mp4',
+        # default='twitter_x264.mp4',
     )
     parser.add_argument(
         '--output_dir',
@@ -118,14 +119,20 @@ def main():
 
     frame_id = 1
 
+    interval = 15
     while True:
+        current_frame = cap.get(cv2.CAP_PROP_POS_FRAMES)
         start_time = time.time()
         ret, frame = cap.read()
         if not ret:
             break
+        
         debug_image = copy.deepcopy(frame)
+
         _, bboxes, ids, scores = byte_tracker.inference(frame)
+
         elapsed_time = time.time() - start_time
+
         debug_image = draw_tracking_info(
             debug_image,
             bboxes,
@@ -148,6 +155,7 @@ def main():
             'frame {}/{} ({:.2f} ms)'.format(frame_id, int(frame_count),
                                              elapsed_time * 1000), )
         frame_id += 1
+        cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame + interval)
 
     if use_debug_window:
         cap.release()

@@ -20,7 +20,7 @@ class ByteTrackerONNX(object):
         self.rgb_means = (0.485, 0.456, 0.406)
         self.std = (0.229, 0.224, 0.225)
 
-        self.session = onnxruntime.InferenceSession(args.model)
+        self.session = onnxruntime.InferenceSession(args.model, providers=onnxruntime.get_available_providers())
         self.input_shape = tuple(map(int, args.input_shape.split(',')))
 
         self.tracker = BYTETracker(args, frame_rate=30)
@@ -86,6 +86,8 @@ class ByteTrackerONNX(object):
     def _tracker_update(self, dets, image_info):
         online_targets = []
         if dets is not None:
+            # dets xywh conf cls
+            # print('dets shape', dets[:, :-1].shape, dets[:, -1])
             online_targets = self.tracker.update(
                 dets[:, :-1],
                 [image_info['height'], image_info['width']],

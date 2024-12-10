@@ -4,7 +4,7 @@ import scipy
 import lap
 from scipy.spatial.distance import cdist
 
-from cython_bbox import bbox_overlaps as bbox_ious
+# from cython_bbox import bbox_overlaps as bbox_ious
 from byte_tracker.tracker import kalman_filter
 import time
 
@@ -37,18 +37,94 @@ def _indices_to_matches(cost_matrix, indices, thresh):
 
 
 def linear_assignment(cost_matrix, thresh):
+    """
+    线性分配算法 - 使用Jonker-Volgenant算法求解带阈值的线性分配问题
+    
+    参数:
+        cost_matrix: 成本矩阵，表示所有可能分配的代价
+        thresh: 阈值，超过此代价的分配将被忽略
+    
+    返回:
+        matches: 匹配的行列索引对数组
+        unmatched_a: 未匹配的行索引数组
+        unmatched_b: 未匹配的列索引数组
+    """
+    # 如果成本矩阵为空，返回空结果
     if cost_matrix.size == 0:
         return np.empty((0, 2), dtype=int), tuple(range(cost_matrix.shape[0])), tuple(range(cost_matrix.shape[1]))
+    
+    # 初始化结果列表
     matches, unmatched_a, unmatched_b = [], [], []
+    
+    # 使用lap.lapjv求解线性分配问题
+    # extend_cost=True表示扩展成本矩阵以处理不完全匹配
+    # cost_limit=thresh设置代价上限
     cost, x, y = lap.lapjv(cost_matrix, extend_cost=True, cost_limit=thresh)
+    
+    # 遍历行索引的匹配结果
     for ix, mx in enumerate(x):
+        # 如果存在有效匹配（mx >= 0），添加到matches列表
         if mx >= 0:
             matches.append([ix, mx])
+    
+    # 获取未匹配的行索引（x < 0的位置）
     unmatched_a = np.where(x < 0)[0]
+    # 获取未匹配的列索引（y < 0的位置）
     unmatched_b = np.where(y < 0)[0]
+    
+    # 将matches转换为numpy数组
     matches = np.asarray(matches)
+    
     return matches, unmatched_a, unmatched_b
 
+def bbox_ious_vectorized(boxes, query_boxes):
+    """
+    使用NumPy向量化操作计算两组边界框之间的IoU
+    
+    Parameters
+    ----------
+    boxes: (N, 4) ndarray of float
+    query_boxes: (K, 4) ndarray of float
+    Returns
+    -------
+    overlaps: (N, K) ndarray of overlap between boxes and query_boxes
+    """
+    N = boxes.shape[0]
+    K = query_boxes.shape[0]
+    
+    # 将boxes扩展为(N,1,4)
+    boxes = boxes.reshape(N,1,4)
+    # 将query_boxes扩展为(1,K,4)
+    query_boxes = query_boxes.reshape(1,K,4)
+    
+    # 计算所有boxes的面积 (N,1)
+    boxes_area = (boxes[:, :, 2] - boxes[:, :, 0] + 1) * \
+                (boxes[:, :, 3] - boxes[:, :, 1] + 1)
+    
+    # 计算所有query_boxes的面积 (1,K)
+    query_boxes_area = (query_boxes[:, :, 2] - query_boxes[:, :, 0] + 1) * \
+                    (query_boxes[:, :, 3] - query_boxes[:, :, 1] + 1)
+    
+    # 计算交集区域的左上角和右下角坐标
+    iw = np.minimum(boxes[:, :, 2], query_boxes[:, :, 2]) - \
+        np.maximum(boxes[:, :, 0], query_boxes[:, :, 0]) + 1
+    ih = np.minimum(boxes[:, :, 3], query_boxes[:, :, 3]) - \
+        np.maximum(boxes[:, :, 1], query_boxes[:, :, 1]) + 1
+    
+    # 将无效值（负值）设为0
+    iw = np.maximum(iw, 0)
+    ih = np.maximum(ih, 0)
+    
+    # 计算交集面积
+    intersection = iw * ih
+    
+    # 计算并集面积 (N,K)
+    union = boxes_area + query_boxes_area - intersection
+    
+    # 计算IoU
+    overlaps = intersection / union
+    
+    return overlaps
 
 def ious(atlbrs, btlbrs):
     """
@@ -58,13 +134,13 @@ def ious(atlbrs, btlbrs):
 
     :rtype ious np.ndarray
     """
-    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float)
+    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float32)
     if ious.size == 0:
         return ious
 
-    ious = bbox_ious(
-        np.ascontiguousarray(atlbrs, dtype=np.float),
-        np.ascontiguousarray(btlbrs, dtype=np.float)
+    ious = bbox_ious_vectorized(
+        np.ascontiguousarray(atlbrs, dtype=np.float32),
+        np.ascontiguousarray(btlbrs, dtype=np.float32)
     )
 
     return ious
@@ -118,13 +194,16 @@ def embedding_distance(tracks, detections, metric='cosine'):
     :return: cost_matrix np.ndarray
     """
 
-    cost_matrix = np.zeros((len(tracks), len(detections)), dtype=np.float)
+    cost_matrix = np.zeros((len(tracks), len(detections)), dtype=np.float32)
     if cost_matrix.size == 0:
         return cost_matrix
-    det_features = np.asarray([track.curr_feat for track in detections], dtype=np.float)
+    det_features = np.asarray([track.curr_feat for track in detections], dtype=np.float32)
     #for i, track in enumerate(tracks):
         #cost_matrix[i, :] = np.maximum(0.0, cdist(track.smooth_feat.reshape(1,-1), det_features, metric))
-    track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float)
+    
+    # TODO:smooth_feat 没有定义
+    # track_features = np.asarray([track.curr_feat for track in tracks], dtype=np.float32)
+    track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float32)
     cost_matrix = np.maximum(0.0, cdist(track_features, det_features, metric))  # Nomalized features
     return cost_matrix
 
