@@ -61,7 +61,7 @@ def pre_process(image, input_size, mean, std, swap=(2, 0, 1)):
     if len(image.shape) == 3:
         padded_img = np.ones((input_size[0], input_size[1], 3)) * 114.0
     else:
-        padded_img = np.ones(input_size) * 114.0
+        padded_img = np.ones(input_size) * 114.0 
     img = np.array(image)
     r = min(input_size[0] / img.shape[0], input_size[1] / img.shape[1])
     resized_img = cv2.resize(
@@ -71,8 +71,8 @@ def pre_process(image, input_size, mean, std, swap=(2, 0, 1)):
     ).astype(np.float32)
     padded_img[:int(img.shape[0] * r), :int(img.shape[1] * r)] = resized_img
 
-    padded_img = padded_img[:, :, ::-1]
-    padded_img /= 255.0
+    padded_img = padded_img[:, :, ::-1] # BGR to RGB
+    padded_img /= 255.0 # 0 - 255 to 0.0 - 1.0
     if mean is not None:
         padded_img -= mean
     if std is not None:
@@ -83,6 +83,17 @@ def pre_process(image, input_size, mean, std, swap=(2, 0, 1)):
 
 
 def post_process(outputs, img_size, p6=False):
+    # outputs = np.transpose(outputs, (0, 2, 1)) # yolov8s (1,8400,84)
+    # print(outputs.shape)
+    # cls_id = np.expand_dims(outputs[..., 4:].argmax(2), axis=2) # yolov8s (1,8400,1)
+    # print(cls_id.shape)
+    # cls_conf = np.expand_dims(outputs[..., 4:].max(2), axis=2) # yolov8s (1,8400,1)
+    # print(cls_conf.shape)
+    # outputs = np.concatenate([outputs[..., :4], cls_conf, cls_id], axis=2)
+
+    # print(outputs.shape) 
+    # print(outputs[0, 0, :10])
+    
     grids = []
     expanded_strides = []
 
@@ -103,7 +114,9 @@ def post_process(outputs, img_size, p6=False):
 
     grids = np.concatenate(grids, 1)
     expanded_strides = np.concatenate(expanded_strides, 1)
-    outputs[..., :2] = (outputs[..., :2] + grids) * expanded_strides
+    # print(expanded_strides.shape) # yolov8 (1,8400,1)
+    # print(outputs[..., :2].shape) # yolov8 (1,84,2)
+    outputs[..., :2] = (outputs[..., :2] + grids) * expanded_strides 
     outputs[..., 2:4] = np.exp(outputs[..., 2:4]) * expanded_strides
-
+    
     return outputs

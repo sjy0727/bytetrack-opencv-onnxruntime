@@ -18,12 +18,22 @@ def get_args():
         '--model',
         type=str,
         default='byte_tracker/model/bytetrack_s.onnx',
+        # default='byte_tracker/model/yolov8s.onnx',
     )
+
+    parser.add_argument(
+        '--reid_model',
+        type=str,
+        default='byte_tracker/model/mgn_R50-ibn.onnx',
+    )
+
     parser.add_argument(
         '--video',
         type=str,
-        default='sample.mp4',
+        # default='sample.mp4',
+        default='rtsp://admin:zbzn2024@192.168.0.76:554'
         # default='twitter_x264.mp4',
+        # default='/Users/sunjunyi/Downloads/bak.mp4'
     )
     parser.add_argument(
         '--output_dir',
@@ -46,6 +56,11 @@ def get_args():
         default='608,1088',
     )
     parser.add_argument(
+        '--reid_input_shape',
+        type=str,
+        default='384,128',
+    )
+    parser.add_argument(
         '--with_p6',
         action='store_true',
         help='Whether your model uses p6 in FPN/PAN.',
@@ -55,7 +70,7 @@ def get_args():
     parser.add_argument(
         '--track_thresh',
         type=float,
-        default=0.5,
+        default=0.4,
         help='tracking confidence threshold',
     )
     parser.add_argument(
@@ -119,9 +134,9 @@ def main():
 
     frame_id = 1
 
-    interval = 15
+    # interval = 5
     while True:
-        current_frame = cap.get(cv2.CAP_PROP_POS_FRAMES)
+        # current_frame = cap.get(cv2.CAP_PROP_POS_FRAMES)
         start_time = time.time()
         ret, frame = cap.read()
         if not ret:
@@ -129,7 +144,7 @@ def main():
         
         debug_image = copy.deepcopy(frame)
 
-        _, bboxes, ids, scores = byte_tracker.inference(frame)
+        image_info, bboxes, ids, scores = byte_tracker.inference(frame)
 
         elapsed_time = time.time() - start_time
 
@@ -155,7 +170,7 @@ def main():
             'frame {}/{} ({:.2f} ms)'.format(frame_id, int(frame_count),
                                              elapsed_time * 1000), )
         frame_id += 1
-        cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame + interval)
+        # cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame + interval)
 
     if use_debug_window:
         cap.release()

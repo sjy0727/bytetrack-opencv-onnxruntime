@@ -5,10 +5,12 @@ import os.path as osp
 import copy
 import torch
 import torch.nn.functional as F
+from typing import List, Tuple, Dict
 
 from .kalman_filter import KalmanFilter
 from byte_tracker.tracker import matching
 from .basetrack import BaseTrack, TrackState
+from byte_tracker.reid_onnx import ReIDONNX
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
@@ -157,7 +159,12 @@ class BYTETracker(object):
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilter()
 
+        # self.reid_model = ReIDONNX(args)
+
     def update(self, output_results, img_info, img_size):
+        """
+        img_info: {'height': int, 'width': int, 'image': np.array}
+        """
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
@@ -171,7 +178,8 @@ class BYTETracker(object):
             output_results = output_results.cpu().numpy()
             scores = output_results[:, 4] * output_results[:, 5]
             bboxes = output_results[:, :4]  # x1y1x2y2
-        img_h, img_w = img_info[0], img_info[1]
+        # img_h, img_w = img_info[0], img_info[1]
+        img_h, img_w = img_info['height'], img_info['width']
         scale = min(img_size[0] / float(img_h), img_size[1] / float(img_w))
         bboxes /= scale
 
@@ -189,6 +197,18 @@ class BYTETracker(object):
             '''Detections'''
             detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
                         (tlbr, s) in zip(dets, scores_keep)]
+            # print(img_info['image'].shape)
+
+            # img = copy.deepcopy(img_info['image'])
+            # for idet, tlbr in enumerate(dets):
+            #     detection = detections[idet]
+            #     tlbr = np.round(tlbr).astype(np.int32)
+            #     tlbr = np.maximum(tlbr, 0)
+            #     print("Frist", tlbr)
+            #     box_img = img[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]]
+            #     print("Frist", box_img.shape)
+            #     detection.curr_feature = self.reid_model.inference(box_img)[0]
+
         else:
             detections = []
 
@@ -210,7 +230,9 @@ class BYTETracker(object):
         # strack_pool_feat = ReIDFeatureExtractor.get_features(strack_pool, img, img0)
         # detections_feat = ReIDFeatureExtractor.get_features(detections, img, img0)
         # dists = matching.embedding_distance(strack_pool_feat, detections_feat)
+
         dists = matching.iou_distance(strack_pool, detections) 
+        # dists = matching.embedding_distance(strack_pool, detections)
         if not self.args.mot20:
             dists = matching.fuse_score(dists, detections)
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.args.match_thresh)
@@ -222,7 +244,7 @@ class BYTETracker(object):
                 track.update(detections[idet], self.frame_id)
                 activated_starcks.append(track)
             else:
-                track.re_activate(det, self.frame_id, new_id=False)
+                track.re_activate(det, self.frame_id, new_id=False) # 第一次匹配上的未追踪的轨迹，re_activate
                 refind_stracks.append(track)
 
         ''' Step 3: Second association, with low score detection boxes'''
@@ -231,6 +253,16 @@ class BYTETracker(object):
             '''Detections'''
             detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
                         (tlbr, s) in zip(dets_second, scores_second)]
+            
+            # img = copy.deepcopy(img_info['image'])
+            # for idet, tlbr in enumerate(dets_second):
+            #     detection = detections_second[idet]
+            #     tlbr = np.round(tlbr).astype(np.int32)
+            #     tlbr = np.maximum(tlbr, 0)
+            #     print("Second", tlbr)
+            #     box_img = img[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]]
+            #     print("Second", box_img.shape)
+            #     detection.curr_feature = self.reid_model.inference(box_img)[0]
         else:
             detections_second = []
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
@@ -273,6 +305,7 @@ class BYTETracker(object):
                 continue
             track.activate(self.kalman_filter, self.frame_id)
             activated_starcks.append(track)
+
         """ Step 5: Update state"""
         for track in self.lost_stracks:
             if self.frame_id - track.end_frame > self.max_time_lost:
@@ -292,24 +325,62 @@ class BYTETracker(object):
         # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
 
+        # TODO: 记录稳定轨迹
+        # img = copy.deepcopy(img_info['image'])
+        # stable_tracks = []
+        # for track in output_stracks:
+        #     tlbr = track.tlbr
+        #     tlbr = np.round(tlbr).astype(np.int32)
+        #     box_img = img[tlbr [1]:tlbr[3], tlbr[0]:tlbr[2]]
+
+        #     if track.tracklet_len > 30 and box_img.shape[0] > 0 and box_img.shape[1] > 0: # 如果追踪长度超过10,则比对ReID特征
+        #         # tlbr = STrack.tlwh_to_tlbr(track._tlwh)
+        #         # tlbr = track.tlbr
+        #         # tlbr = np.round(tlbr).astype(np.int32)
+        #         # box_img = img[tlbr[1]:tlbr[3], tlbr[0]:tlbr[2]]
+        #         print(track.track_id, box_img.shape, track)
+        #         track.curr_feature = self.reid_model.inference(box_img)[0]
+        #         stable_tracks.append(track)
+            # print(f"track_id: {track.track_id}, tracklet_len: {track.tracklet_len}")
+
         return output_stracks
 
 
-def joint_stracks(tlista, tlistb):
+def joint_stracks(tlista: List[STrack], tlistb: List[STrack]) -> List[STrack]:
+    """
+    合并两个轨迹列表，确保不存在重复的track_id
+    Args:
+        tlista: 第一个轨迹列表
+        tlistb: 第二个轨迹列表
+    Returns:
+        合并后的轨迹列表
+    """
     exists = {}
     res = []
+
+    # 添加第一个列表中的所有轨迹
     for t in tlista:
         exists[t.track_id] = 1
         res.append(t)
+
+    # 添加第二个列表中不重复的轨迹
     for t in tlistb:
         tid = t.track_id
         if not exists.get(tid, 0):
             exists[tid] = 1
             res.append(t)
+
     return res
 
-
-def sub_stracks(tlista, tlistb):
+def sub_stracks(tlista: List[STrack], tlistb: List[STrack]) -> List[STrack]:
+    """
+    从列表A中删除在列表B中出现的轨迹
+    Args:
+        tlista: 被减列表
+        tlistb: 要减去的列表
+    Returns:
+        差集列表
+    """
     # stracks = {}
     # for t in tlista:
     #     stracks[t.track_id] = t
@@ -318,21 +389,57 @@ def sub_stracks(tlista, tlistb):
     #     if stracks.get(tid, 0):
     #         del stracks[tid]
     # return list(stracks.values())
-    track_ids_b = [t.track_id for t in tlistb]
-    return [t for t in tlista if not t.track_id in track_ids_b]
+
+    track_ids_b = {t.track_id for t in tlistb}
+    return [t for t in tlista if t.track_id not in track_ids_b]
 
 
-def remove_duplicate_stracks(stracksa, stracksb):
+def remove_duplicate_stracks(stracksa: List[STrack], stracksb: List[STrack]) -> Tuple[List[STrack], List[STrack]]:
+    """
+    移除重复的轨迹，保留跟踪时间较长的轨迹
+    Args:
+        stracksa: 第一个轨迹列表
+        stracksb: 第二个轨迹列表
+    Returns:
+        处理后的两个轨迹列表，确保没有重复轨迹
+    """
+    # 计算两个列表中轨迹之间的IOU距离
     pdist = matching.iou_distance(stracksa, stracksb)
+    # 找出IOU重叠度高的轨迹对(阈值0.15)
     pairs = np.where(pdist < 0.15)
     dupa, dupb = list(), list()
+    
+    # 对每对重叠的轨迹，保留跟踪时间更长的轨迹
     for p, q in zip(*pairs):
-        timep = stracksa[p].frame_id - stracksa[p].start_frame
-        timeq = stracksb[q].frame_id - stracksb[q].start_frame
-        if timep > timeq:
-            dupb.append(q)
-        else:
-            dupa.append(p)
-    resa = [t for i, t in enumerate(stracksa) if not i in dupa]
-    resb = [t for i, t in enumerate(stracksb) if not i in dupb]
-    return resa, resb
+        # 计算两个轨迹的跟踪时长
+        timep = stracksa[p].frame_id - stracksa[p].start_frame  # 第一个轨迹的存活时间
+        timeq = stracksb[q].frame_id - stracksb[q].start_frame  # 第二个轨迹的存活时间
+        
+        # 比较存活时间，将存活时间短的轨迹标记为重复
+        if timep > timeq:  # 如果第一个轨迹存活时间更长
+            dupb.append(q)  # 标记第二个轨迹为重复
+        else:  # 如果第二个轨迹存活时间更长或相等
+            dupa.append(p)  # 标记第一个轨迹为重复
+            
+    # 从两个列表中分别移除被标记为重复的轨迹
+    resa = [t for i, t in enumerate(stracksa) if not i in dupa]  # 保留未标记为重复的轨迹
+    resb = [t for i, t in enumerate(stracksb) if not i in dupb]  
+    
+    return resa, resb  # 返回处理后的两个轨迹列表
+
+# 加载本地注册过的特征向量
+def load_registered_features(feats_dir: str):
+    import glob
+    feats = []
+    feats_ids = []
+
+    feat_files = glob.glob(os.path.join(feats_dir, '*.npz'))
+    for feat_path in feat_files:
+        person_id = int(os.path.basename(feat_path).split('_')[-1].split('.')[0])
+        feat = np.load(feat_path)['feature']
+        feat = feat / np.linalg.norm(feat, keepdims=True)
+
+        feats.append(feat)
+        feats_ids.append(person_id)
+
+    return feats, feats_ids
