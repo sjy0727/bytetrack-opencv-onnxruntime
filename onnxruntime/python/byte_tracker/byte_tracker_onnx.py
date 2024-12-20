@@ -13,6 +13,7 @@ from byte_tracker.utils.yolox_utils import (
 from byte_tracker.tracker.byte_tracker import BYTETracker, load_registered_features
 from byte_tracker.reid_onnx import ReIDONNX
 from byte_tracker.tracker.matching import feature_distance, linear_assignment
+from byte_tracker.tracker.stable_cascade_match import cascade_reid_matching
 
 
 class ByteTrackerONNX(object):
@@ -88,18 +89,20 @@ class ByteTrackerONNX(object):
             track_feats = np.array([track.curr_feature for track in stable_tracks])
             track_positions = np.array([track.tlwh for track in stable_tracks])
             track_ids = np.array([track.track_id for track in stable_tracks])
-            print("track_feats",track_feats)
-            print("track_positions",track_positions)
-            print("track_ids",track_ids)
+            # print("track_feats",track_feats)
+            # print("track_positions",track_positions)
+            # print("track_ids",track_ids)
             
-            matches = self.matcher.match_with_constraints(
-                track_feats=track_feats,
-                track_positions=track_positions,
-                track_ids=track_ids,
-                reg_feats=np.array(self.local_features),
-                reg_ids=np.array(self.local_features_ids)
-            )
-            
+            # matches = self.matcher.match_with_constraints(
+            #     track_feats=track_feats,
+            #     track_positions=track_positions,
+            #     track_ids=track_ids,
+            #     reg_feats=np.array(self.local_features),
+            #     reg_ids=np.array(self.local_features_ids)
+            # )
+
+            matches = cascade_reid_matching(track_feats, np.array(self.local_features), 0.1)
+            print("matches", matches)
             for track_idx, reg_idx, score in matches:
                 print(reg_idx)
                 # stable_tracks[track_idx].track_id = self.local_features_ids[reg_idx]
@@ -161,6 +164,7 @@ class ByteTrackerONNX(object):
                 online_tlwhs.append(tlwh)
                 online_ids.append(track_id)
                 online_scores.append(online_target.score)
+
                 # TODO: 记录稳定轨迹
                 _tlwh = np.round(copy.deepcopy(tlwh)).astype(np.int32)
                 _tlwh = np.maximum(_tlwh, 0)
